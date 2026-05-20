@@ -93,7 +93,7 @@ def tipp3_pipeline(*args, **kwargs):
             refpkg, query_placement_paths, pool, lock)
 
         if Configs.command == 'abundance':
-            getAbundanceProfile(refpkg, filtered_paths)
+            getAbundanceProfile(refpkg, classification_paths)
             s5 = time.time()
             _LOG.info(f"Runtime for abundance profiling (seconds): {s5 - s4}")
 

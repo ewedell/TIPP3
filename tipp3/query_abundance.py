@@ -74,15 +74,19 @@ def getSpeciesDetection(detection_thresholds, refpkg, classification_paths,
                     break
                 f.write(f"{taxname}\t{taxid}\t{mc}\n")
 
-def getAbundanceProfile(refpkg, filtered_paths):
-    """Aggregate filtered classifications into an abundance profile per rank."""
+def getAbundanceProfile(refpkg, classification_paths):
+    """Aggregate raw classifications into an abundance profile per rank.
+
+    For each species s, n_s is the sum of support values across all reads.
+    The proportion of s is n_s / sum(n_s for all s).
+    """
     _LOG.info("Aggregating abundances for a profile")
 
     abundance_profile = {rank: defaultdict(float) for rank in RANKS}
     taxid_map = parseTaxonomy(refpkg['taxonomy']['taxonomy'])
 
-    for marker, filtered_path in filtered_paths.items():
-        updateAbundanceProfile(filtered_path, abundance_profile)
+    for marker, classification_path in classification_paths.items():
+        updateAbundanceProfile(classification_path, abundance_profile)
 
     _LOG.info(f"Writing abundance profiles at each taxonomic level to {Configs.outdir}")
     for rank in RANKS:
@@ -151,7 +155,7 @@ def getAllClassification(refpkg, query_placement_paths, pool, lock):
         pass
 
     filtered_paths = {}
-    if Configs.command == 'abundance':
+    if Configs.command == 'old_abundance':
         _LOG.info(f"Filtering with support value={support_value}")
         for marker, classification_path in classification_paths.items():
             clas_outdir = os.path.join(Configs.outdir, 'query_classifications',
@@ -186,18 +190,25 @@ def getAllClassification(refpkg, query_placement_paths, pool, lock):
     return classification_paths, filtered_paths
 
 def updateAbundanceProfile(inpath, abundance_profile):
-    """Update abundance profile counts from a filtered classification file."""
-    with open(inpath, 'r') as f:
-        lines = f.read().strip().split('\n')
-        for i in range(1, len(lines)):
-            parts = lines[i].split('\t')
-            if len(parts) < 2:
+    """Sum support values from a raw classification file into the abundance profile.
+
+    Each line of the classification file is: fragment,tax_id,taxname,rank,prob.
+    For each taxon s at each rank, n_s accumulates the sum of prob values
+    across all reads, which is used to estimate relative abundance.
+    """
+    with open(inpath, 'r', newline='') as f:
+        reader = csv.reader(f)
+        for parts in reader:
+            if len(parts) < 5:
                 continue
-            fields = [int(x) if x.upper() != 'NA' else 0 for x in parts[1:]]
-            if sum(fields) == 0:
+            try:
+                taxid = int(parts[1])
+                rank = parts[-2]
+                supp = float(parts[-1])
+            except (ValueError, IndexError):
                 continue
-            for j in range(min(len(RANKS), len(fields))):
-                abundance_profile[RANKS[j]][fields[j]] += 1
+            if rank in abundance_profile:
+                abundance_profile[rank][taxid] += supp
 
 def parseTaxonomy(inpath):
     """Parse taxonomy file (all_taxon.taxonomy) into a taxid->(name, parent, rank) map.
